@@ -13,7 +13,7 @@ from components.ui import (
 )
 from utils import (
     capture_face, save_image, get_face_encoding, 
-    save_encoding
+    save_encoding, delete_face_data, FACES_DIR
 )
 
 # Configure Streamlit page
@@ -21,7 +21,12 @@ st.set_page_config(
     page_title="Smart Canteen System",
     page_icon="🍽️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://www.example.com/help',
+        'Report a bug': 'https://www.example.com/bug',
+        'About': 'Smart Canteen System - A modern solution for campus dining'
+    }
 )
 
 # Initialize auto-refresh (every 5 seconds)
@@ -212,7 +217,7 @@ def login():
                             st.session_state.authenticated = True
                             st.session_state.user_role = role
                             st.session_state.username = username
-                            st.rerun()
+                            st.experimental_rerun()
                         else:
                             st.error("Incorrect password")
                             
@@ -239,7 +244,7 @@ def logout():
     st.session_state.user_role = None
     st.session_state.username = None
     st.session_state.cart = []
-    st.rerun()
+    st.experimental_rerun()
 
 def student_dashboard():
     st.title("Student Dashboard")
@@ -374,7 +379,7 @@ def student_dashboard():
                 
                 st.session_state.cart = []
                 st.success(f"Order placed successfully! Order ID: {order_id}")
-                st.rerun()
+                st.experimental_rerun()
     
     with tab2:
         st.subheader("Track Your Orders")
@@ -441,12 +446,12 @@ def staff_dashboard():
                 with col1:
                     if order['status'] != 'placed' and st.button('Mark as Placed', key=f"placed_{order['order_id']}"):
                         db.update_order_status(order['order_id'], 'placed')
-                        st.rerun()
+                        st.experimental_rerun()
                 
                 with col2:
                     if order['status'] != 'preparing' and st.button('Mark as Preparing', key=f"preparing_{order['order_id']}"):
                         db.update_order_status(order['order_id'], 'preparing')
-                        st.rerun()
+                        st.experimental_rerun()
                 
                 # When marking as prepared, send notification
                 with col3:
@@ -457,7 +462,7 @@ def staff_dashboard():
                             order['username'],
                             f"✅ Your food for Order #{order['order_id']} is ready! Please collect at counter."
                         )
-                        st.rerun()
+                        st.experimental_rerun()
     
     # Completed orders
     st.markdown("---")
@@ -493,13 +498,13 @@ def admin_dashboard():
             logout()
     
     # Main content tabs
-    tabs = st.tabs(["User Management", "Food Items", "Analytics"])
+    tabs = st.tabs(["User & Face Management", "Food Items", "Analytics"])
     
     with tabs[0]:
-        st.subheader("User Management")
+        st.subheader("👥 User Management")
         
         # Add new user
-        with st.expander("Add New User"):
+        with st.expander("➕ Add New User"):
             new_username = st.text_input("Username")
             new_password = st.text_input("Password", type="password")
             new_role = st.selectbox("Role", ["admin", "staff", "student"])
@@ -515,12 +520,14 @@ def admin_dashboard():
                 except sqlite3.IntegrityError:
                     st.error("Username already exists!")
                 conn.close()
-                st.rerun()
+                st.experimental_rerun()
 
-        # Face Registration Section
+        # Face Management Section
         st.markdown("---")
-        st.subheader("Face Registration")
-        with st.expander("Register User Face"):
+        st.subheader("😊 Face Management")
+        
+        # Face Registration
+        with st.expander("📸 Register User Face", expanded=True):
             reg_username = st.text_input("Enter username for face registration")
             
             if reg_username:
@@ -536,20 +543,19 @@ def admin_dashboard():
                 else:
                     st.write("Ensure good lighting and face the camera directly")
                     
-                    if st.button("Capture Face"):
+                    if st.button("📸 Capture Face", key="capture_face_button"):
                         with st.spinner("Capturing image from webcam..."):
                             image, message = capture_face()
                             
                             if "Error" in message:
                                 st.error(message)
                             else:
-                                # Display captured image
                                 st.image(image, caption="Captured Image", channels="RGB")
                                 
                                 try:
                                     # Save image
                                     image_path = save_image(image, reg_username)
-                                    st.success(f"Image saved successfully")
+                                    st.success("📸 Image saved successfully")
                                     
                                     # Get and save face encoding
                                     face_encoding = get_face_encoding(image)
@@ -562,20 +568,23 @@ def admin_dashboard():
                                         
                                 except Exception as e:
                                     st.error(f"Error saving face data: {str(e)}")
-        
+
         # Registration tips as a separate section
-        st.markdown("### 📋 Registration Tips")
-        st.markdown("""
-        - Ensure the face is clearly visible
-        - Look directly at the camera
-        - Avoid strong backlighting
-        - Keep a neutral expression
-        - Remove glasses if possible
-        """)
+        with st.expander("📋 Registration Tips", expanded=True):
+            st.markdown("""
+            - Ensure the face is clearly visible
+            - Look directly at the camera
+            - Avoid strong backlighting
+            - Keep a neutral expression
+            - Remove glasses if possible
+            """)
         
         # List and manage users
         st.markdown("---")
-        st.subheader("Current Users")
+        st.subheader("📊 Current Users")
+        
+        # Display registered faces status
+        st.write("### 🎭 Face Registration Status")
         conn = sqlite3.connect('database/canteen.db')
         users = pd.read_sql_query('SELECT * FROM users', conn)
         conn.close()
@@ -584,10 +593,13 @@ def admin_dashboard():
             col1, col2, col3 = st.columns([2, 1, 1])
             
             with col1:
-                st.write(f"**{user['username']}** ({user['role']})")
+                username = user['username']
+                face_registered = os.path.exists(os.path.join(FACES_DIR, f"{username}.jpg"))
+                status_emoji = "✅" if face_registered else "❌"
+                st.write(f"**{username}** ({user['role']}) {status_emoji}")
             
             with col2:
-                if st.button("Reset Password", key=f"reset_{user['username']}"):
+                if st.button("🔑 Reset Password", key=f"reset_{user['username']}"):
                     conn = sqlite3.connect('database/canteen.db')
                     c = conn.cursor()
                     c.execute('UPDATE users SET password = ? WHERE username = ?',
@@ -597,16 +609,39 @@ def admin_dashboard():
                     st.success(f"Password reset for {user['username']}")
             
             with col3:
-                if user['username'] not in ['admin', 'staff', 'student1']:
-                    if st.button("Delete", key=f"delete_{user['username']}"):
-                        conn = sqlite3.connect('database/canteen.db')
-                        c = conn.cursor()
-                        c.execute('DELETE FROM users WHERE username = ?',
-                                (user['username'],))
-                        conn.commit()
-                        conn.close()
-                        st.rerun()
-    
+                # Only show Remove Face button if face is registered
+                if os.path.exists(os.path.join(FACES_DIR, f"{user['username']}.jpg")):
+                    if st.button("🎭 Remove Face", key=f"remove_face_{user['username']}"):
+                        try:
+                            from utils import delete_face_data
+                            delete_face_data(user['username'])
+                            st.success(f"Face registration removed for {user['username']}")
+                            st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"Error removing face data: {str(e)}")
+                
+                # Show delete user button only for non-default users
+                elif user['username'] not in ['admin', 'staff', 'student1']:
+                    if st.button("🗑️ Delete User", key=f"delete_{user['username']}"):
+                        try:
+                            # Delete face data first
+                            from utils import delete_face_data
+                            delete_face_data(user['username'])
+                            
+                            # Then delete user from database
+                            conn = sqlite3.connect('database/canteen.db')
+                            c = conn.cursor()
+                            c.execute('DELETE FROM users WHERE username = ?',
+                                    (user['username'],))
+                            conn.commit()
+                            conn.close()
+                            st.success(f"User {user['username']} deleted successfully!")
+                            st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"Error deleting user: {str(e)}")
+                            if conn:
+                                conn.close()
+
     with tabs[1]:
         st.subheader("Food Items Management")
         
@@ -651,7 +686,7 @@ def admin_dashboard():
                     st.session_state.food_stock = 0
                     st.session_state.food_validity = "daily"
                     st.session_state.food_image = ""
-                    st.rerun()
+                    st.experimental_rerun()
                 else:
                     st.error("Please enter a valid name and price")
                     # Keep the existing values in session state
@@ -689,19 +724,19 @@ def admin_dashboard():
                             new_image
                         )
                         st.success("Item updated!")
-                        st.rerun()
+                        st.experimental_rerun()
                     
                     if st.button("Delete Item", key=f"delete_item_{item['id']}"):
                         db.delete_food_item(item['id'])
                         st.success("Item deleted!")
-                        st.rerun()
+                        st.experimental_rerun()
         
         # Reset daily items
         st.markdown("---")
         if st.button("Reset Daily Items"):
             db.reset_daily_items()
             st.success("Daily items reset successfully!")
-            st.rerun()
+            st.experimental_rerun()
     
     with tabs[2]:
         st.subheader("Order Analytics")
@@ -737,6 +772,10 @@ def main():
         os.makedirs('database')
     init_db()
     
+    # Apply custom theme
+    from components.ui import set_custom_theme
+    set_custom_theme()
+    
     # Ensure database connection is initialized in session state
     if 'db_connection' not in st.session_state:
         st.session_state.db_connection = DatabaseManager()
@@ -755,6 +794,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 
 
 

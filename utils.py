@@ -5,7 +5,7 @@ import os
 import pickle
 from PIL import Image
 import streamlit as st
-
+import numpy
 # Create necessary directories
 FACES_DIR = os.path.join(os.path.dirname(__file__), 'faces')
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
@@ -16,35 +16,109 @@ ENCODINGS_FILE = os.path.join(DATA_DIR, 'encodings.pkl')
 
 def capture_face():
     """Capture a single frame from webcam and detect face"""
+    cap = None
+    preview = None
     try:
-        cap = cv2.VideoCapture(0)
+        # Try multiple camera indices (0, 1) in case default camera is not at index 0
+        for camera_index in [0, 1]:
+            try:
+                if cap is not None:
+                    cap.release()
+                
+                cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)  # Use DirectShow API on Windows
+                
+                if not cap.isOpened():
+                    if camera_index == 1:  # If we've tried both cameras
+                        return None, "Error: Could not access any webcam. Please ensure your webcam is connected and not in use by another application."
+                    continue  # Try next camera
+                
+                # Set camera properties for better capture - use smaller resolution
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)  # Reduced from 640
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)  # Reduced from 480
+                cap.set(cv2.CAP_PROP_BRIGHTNESS, 150)
+                cap.set(cv2.CAP_PROP_CONTRAST, 150)
+                cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.75)
+                
+                # Create a placeholder for the webcam feed
+                preview = st.empty()
+                
+                # Counter for successful face detections
+                face_detected_count = 0
+                max_attempts = 30  # Try for about 3 seconds
+                
+                for attempt in range(max_attempts):
+                    ret, frame = cap.read()
+                    
+                    if not ret or frame is None:
+                        continue
+                    
+                    try:
+                        # Convert BGR to RGB for display and face detection
+                        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        
+                        # Show live preview
+                        if preview is not None:
+                            preview.image(rgb_frame, caption="Camera Preview", channels="RGB")
+                        
+                        # Detect face locations
+                        face_locations = face_recognition.face_locations(rgb_frame)
+                        
+                        if face_locations:
+                            face_detected_count += 1
+                            if face_detected_count >= 3:  # Require 3 consecutive successful detections
+                                if cap is not None:
+                                    cap.release()
+                                if preview is not None:
+                                    preview.empty()
+                                return rgb_frame, "Success"
+                        else:
+                            face_detected_count = 0  # Reset counter if face detection fails
+                        
+                    except (numpy.core._exceptions._ArrayMemoryError, MemoryError) as me:
+                        # If we hit a memory error, try to free up resources and continue
+                        if preview is not None:
+                            preview.empty()
+                        import gc
+                        gc.collect()
+                        continue
+                    
+                    import time
+                    time.sleep(0.1)  # Small delay between frames
+                
+                if cap is not None:
+                    cap.release()
+                if preview is not None:
+                    preview.empty()
+                
+                if camera_index == 1:  # If we've tried both cameras
+                    return None, "Error: Could not detect a face. Please ensure good lighting, face the camera directly, and try again."
+                
+            except Exception as camera_error:
+                if cap is not None:
+                    cap.release()
+                if preview is not None:
+                    preview.empty()
+                if camera_index == 1:
+                    return None, f"Error with camera {camera_index}: {str(camera_error)}"
+                continue
         
-        if not cap.isOpened():
-            return None, "Error: Could not access webcam"
-        
-        # Read a single frame
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret:
-            return None, "Error: Could not capture image"
-        
-        # Convert BGR to RGB
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Detect face locations
-        face_locations = face_recognition.face_locations(rgb_frame)
-        
-        if not face_locations:
-            return None, "Error: No face detected"
-        
-        if len(face_locations) > 1:
-            return None, "Error: Multiple faces detected"
-        
-        return rgb_frame, "Success"
+        return None, "Error: No working camera found."
         
     except Exception as e:
-        return None, f"Error: {str(e)}"
+        if cap is not None:
+            cap.release()
+        if preview is not None:
+            preview.empty()
+        import traceback
+        st.error(f"Detailed error: {traceback.format_exc()}")
+        return None, f"Error accessing camera: {str(e)}. Please ensure your webcam is properly connected and not in use by another application."
+
+    finally:
+        # Make absolutely sure we release the camera
+        if cap is not None:
+            cap.release()
+        if preview is not None:
+            preview.empty()
 
 def save_image(image, username):
     """Save captured image to faces directory"""
@@ -54,9 +128,14 @@ def save_image(image, username):
         
         image_path = os.path.join(FACES_DIR, f"{username}.jpg")
         
-        # Convert numpy array to PIL Image
-        pil_image = Image.fromarray(image)
-        pil_image.save(image_path)
+        # Ensure image is in correct format
+        if isinstance(image, np.ndarray):
+            # Convert numpy array to PIL Image
+            pil_image = Image.fromarray(image.astype('uint8'))
+            pil_image.save(image_path)
+        else:
+            # If already PIL Image
+            image.save(image_path)
         
         return image_path
     
@@ -66,22 +145,26 @@ def save_image(image, username):
 def get_face_encoding(image):
     """Get face encoding from image"""
     try:
-        # Convert image to 8-bit RGB if needed
-        if isinstance(image, np.ndarray):
-            # Ensure 8-bit RGB format
-            if image.dtype != np.uint8:
-                image = (image * 255).astype(np.uint8)
-            # Ensure RGB format
-            if len(image.shape) == 2:  # Grayscale
-                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-            elif image.shape[2] == 4:  # RGBA
-                image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-            elif image.shape[2] == 3:  # Might be BGR
-                if not isinstance(image, np.ndarray) or image.dtype != np.uint8:
-                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Ensure image is in correct format for face_recognition
+        if not isinstance(image, np.ndarray):
+            image = np.array(image)
         
-        # Get face encoding
-        face_encodings = face_recognition.face_encodings(image)
+        # Convert to RGB if needed
+        if len(image.shape) == 2:  # Grayscale
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+        elif len(image.shape) == 3 and image.shape[2] == 4:  # RGBA
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        elif len(image.shape) == 3 and image.shape[2] == 3:  # BGR or RGB
+            if not isinstance(image, np.ndarray) or image.dtype != np.uint8:
+                image = image.astype(np.uint8)
+        
+        # Get face locations first
+        face_locations = face_recognition.face_locations(image)
+        if not face_locations:
+            return None
+            
+        # Get face encodings
+        face_encodings = face_recognition.face_encodings(image, face_locations)
         
         if not face_encodings:
             return None
@@ -140,3 +223,29 @@ def verify_face(image):
         
     except Exception as e:
         return None, f"Error during verification: {str(e)}"
+
+def delete_face_data(username):
+    """Delete face image and encoding for a user"""
+    try:
+        # Delete face image if it exists
+        image_path = os.path.join(FACES_DIR, f"{username}.jpg")
+        if os.path.exists(image_path):
+            os.remove(image_path)
+        
+        # Remove encoding if it exists
+        if os.path.exists(ENCODINGS_FILE):
+            # Load existing encodings
+            with open(ENCODINGS_FILE, 'rb') as f:
+                encodings = pickle.load(f)
+            
+            # Remove user's encoding if it exists
+            if username in encodings:
+                del encodings[username]
+                
+            # Save updated encodings
+            with open(ENCODINGS_FILE, 'wb') as f:
+                pickle.dump(encodings, f)
+                
+        return True
+    except Exception as e:
+        raise Exception(f"Error deleting face data: {str(e)}")
