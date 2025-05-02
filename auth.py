@@ -39,7 +39,7 @@ def face_login():
                         st.session_state.authenticated = True
                         st.session_state.username = username
                         st.session_state.user_role = user_data['role']
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error("User not found in database")
                 else:
@@ -51,4 +51,4 @@ def face_login():
         
         if st.button("Switch to Password Login"):
             st.session_state.login_method = "password"
-            st.experimental_rerun()
+            st.rerun()

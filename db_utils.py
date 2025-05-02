@@ -86,35 +86,44 @@ class DatabaseManager:
                 # Start a transaction
                 c.execute('BEGIN')
                 
-                # Get the username associated with this order
-                c.execute('SELECT username FROM orders WHERE order_id = ?', (order_id,))
+                # Get the username and current status associated with this order
+                c.execute('SELECT username, status FROM orders WHERE order_id = ?', (order_id,))
                 result = c.fetchone()
                 
-                if result:
-                    username = result[0]
+                if not result:
+                    raise Exception("Order not found")
+                    
+                username, current_status = result
+                
+                # Only update if status is actually changing
+                if current_status != status:
                     # Update the order status
                     c.execute('UPDATE orders SET status = ? WHERE order_id = ?', (status, order_id))
                     
                     # Add a notification for the user
                     status_messages = {
-                        'placed': 'Your order has been received and will be prepared soon!',
-                        'preparing': 'Your order is now being prepared in the kitchen.',
-                        'prepared': 'Your order is ready for pickup!'
+                        'placed': '🆕 Your order has been received and will be prepared soon!',
+                        'preparing': '👨‍🍳 Your order is now being prepared in the kitchen.',
+                        'prepared': '✅ Your order is ready for pickup at the counter!'
                     }
                     
                     message = f"Order #{order_id}: {status_messages.get(status, 'Status updated')}"
                     
                     # Add notification within the same transaction
                     c.execute('''
-                        INSERT INTO notifications (username, message)
-                        VALUES (?, ?)
+                        INSERT INTO notifications (username, message, timestamp)
+                        VALUES (?, ?, CURRENT_TIMESTAMP)
                     ''', (username, message))
                     
-                # Commit the transaction
-                c.execute('COMMIT')
+                    # Commit the transaction
+                    conn.commit()
+                    
+                    return True
+                return False
+                
             except sqlite3.Error as e:
                 # Rollback in case of error
-                c.execute('ROLLBACK')
+                conn.rollback()
                 raise e
     
     def add_food_item(self, name, price, category, stock, validity_type, image_url=None):
@@ -197,3 +206,17 @@ class DatabaseManager:
         with self.get_connection() as conn:
             c = conn.cursor()
             c.execute('UPDATE notifications SET is_read = 1 WHERE id = ?', (notification_id,))
+    
+    def get_user(self, username):
+        """Get user information from the database"""
+        with self.get_connection() as conn:
+            c = conn.cursor()
+            c.execute('SELECT username, password, role FROM users WHERE username = ?', (username,))
+            result = c.fetchone()
+            if result:
+                return {
+                    'username': result[0],
+                    'password': result[1],
+                    'role': result[2]
+                }
+            return None

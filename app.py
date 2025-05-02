@@ -217,7 +217,7 @@ def login():
                             st.session_state.authenticated = True
                             st.session_state.user_role = role
                             st.session_state.username = username
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("Incorrect password")
                             
@@ -244,7 +244,7 @@ def logout():
     st.session_state.user_role = None
     st.session_state.username = None
     st.session_state.cart = []
-    st.experimental_rerun()
+    st.rerun()
 
 def student_dashboard():
     st.title("Student Dashboard")
@@ -379,7 +379,7 @@ def student_dashboard():
                 
                 st.session_state.cart = []
                 st.success(f"Order placed successfully! Order ID: {order_id}")
-                st.experimental_rerun()
+                st.rerun()
     
     with tab2:
         st.subheader("Track Your Orders")
@@ -446,12 +446,12 @@ def staff_dashboard():
                 with col1:
                     if order['status'] != 'placed' and st.button('Mark as Placed', key=f"placed_{order['order_id']}"):
                         db.update_order_status(order['order_id'], 'placed')
-                        st.experimental_rerun()
+                        st.rerun()
                 
                 with col2:
                     if order['status'] != 'preparing' and st.button('Mark as Preparing', key=f"preparing_{order['order_id']}"):
                         db.update_order_status(order['order_id'], 'preparing')
-                        st.experimental_rerun()
+                        st.rerun()
                 
                 # When marking as prepared, send notification
                 with col3:
@@ -462,7 +462,7 @@ def staff_dashboard():
                             order['username'],
                             f"✅ Your food for Order #{order['order_id']} is ready! Please collect at counter."
                         )
-                        st.experimental_rerun()
+                        st.rerun()
     
     # Completed orders
     st.markdown("---")
@@ -520,7 +520,7 @@ def admin_dashboard():
                 except sqlite3.IntegrityError:
                     st.error("Username already exists!")
                 conn.close()
-                st.experimental_rerun()
+                st.rerun()
 
         # Face Management Section
         st.markdown("---")
@@ -616,7 +616,7 @@ def admin_dashboard():
                             from utils import delete_face_data
                             delete_face_data(user['username'])
                             st.success(f"Face registration removed for {user['username']}")
-                            st.experimental_rerun()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error removing face data: {str(e)}")
                 
@@ -636,7 +636,7 @@ def admin_dashboard():
                             conn.commit()
                             conn.close()
                             st.success(f"User {user['username']} deleted successfully!")
-                            st.experimental_rerun()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error deleting user: {str(e)}")
                             if conn:
@@ -686,7 +686,7 @@ def admin_dashboard():
                     st.session_state.food_stock = 0
                     st.session_state.food_validity = "daily"
                     st.session_state.food_image = ""
-                    st.experimental_rerun()
+                    st.rerun()
                 else:
                     st.error("Please enter a valid name and price")
                     # Keep the existing values in session state
@@ -724,19 +724,19 @@ def admin_dashboard():
                             new_image
                         )
                         st.success("Item updated!")
-                        st.experimental_rerun()
+                        st.rerun()
                     
                     if st.button("Delete Item", key=f"delete_item_{item['id']}"):
                         db.delete_food_item(item['id'])
                         st.success("Item deleted!")
-                        st.experimental_rerun()
+                        st.rerun()
         
         # Reset daily items
         st.markdown("---")
         if st.button("Reset Daily Items"):
             db.reset_daily_items()
             st.success("Daily items reset successfully!")
-            st.experimental_rerun()
+            st.rerun()
     
     with tabs[2]:
         st.subheader("Order Analytics")
